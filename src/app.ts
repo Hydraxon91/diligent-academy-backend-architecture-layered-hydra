@@ -114,6 +114,19 @@ export default async function createApp(options = {}, dataFilePath: PathLike) {
     }
   )
 
+  app.get(
+    '/pets/:id',
+    { schema: responsePetSchema },
+    async (request, reply) => {
+      const { id } = request.params;
+      const pets = await petStore.read();
+      const foundPet = pets.find(p => p.id === id)
+      if (!foundPet) {
+        return reply.status(404).send({ error: 'Pet not found' });
+      }
+      return foundPet;
+    }
+  )
 
   return app;
 }
