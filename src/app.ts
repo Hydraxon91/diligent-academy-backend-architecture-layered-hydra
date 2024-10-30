@@ -1,49 +1,19 @@
 import fastify from 'fastify';
 import { JsonSchemaToTsProvider } from '@fastify/type-provider-json-schema-to-ts'
 import cors from '@fastify/cors';
-import { readFile, writeFile } from 'node:fs/promises';
-import { PathLike, existsSync, writeFileSync } from 'node:fs';
-
-function getNextId<T extends {id: number}>(items: T[]) {
-  if (items.length === 0) {
-    return 1;
-  }
-  const ids = items.map(item => item.id);
-  const maxId = Math.max(...ids);
-  return maxId + 1;
-}
-
-class JsonFileStore<T> {
-  constructor(private readonly path: PathLike) {
-    if(!existsSync(this.path)) {
-      writeFileSync(this.path, '[]', 'utf-8');
-    }
-  }
-
-  async read() {
-    const content = await readFile(this.path, 'utf-8');
-    const data = JSON.parse(content) as T[];
-    return data 
-  }
-  async write(data: T[]) {
-    const content = JSON.stringify(data, null, 2);
-    await writeFile(this.path, content, 'utf-8');
-  } 
-}
-
-type Pet = {
-  id: number,
-  name: string
-  food: number,
-  weight: number
-  age: number,
-}
+import { PathLike } from 'node:fs';
+import { JsonFileStore } from './utils/json-file-store';
+import { Pet, PetProperties } from './business/pet-type';
+import { PetService } from './business/pet-service';
+import { PetRepository } from './data-access/pet-repository';
 
 export default async function createApp(options = {}, dataFilePath: PathLike) {
   const app = fastify(options).withTypeProvider<JsonSchemaToTsProvider>()
   await app.register(cors, {});
 
   const petStore = new JsonFileStore<Pet>(dataFilePath);
+  const petRepository = new PetRepository(petStore);
+  const petService = new PetService(petStore);
 
   const postPetSchema = {
     body: {
@@ -56,12 +26,38 @@ export default async function createApp(options = {}, dataFilePath: PathLike) {
     }
   } as const
 
+  const responsePetArraySchema = {
+    response: {
+      200: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'number' },
+            name: { type: 'string' },
+            food: { type: 'number' },
+            weight: { type: 'number' },
+            age: { type: 'number' },
+          }
+        }
+      },
+      404: {
+        type: 'object',
+        properties: {
+          // error: { type: 'null' },
+          error: { type: 'string' },
+        },
+      },
+    },
+  } as const;
+
   const responsePetSchema = {
     params: {
       type: "object",
       properties: {
         id: {type: 'number'}
-      }
+      },
+      required: ['id']
     },
     response: {
       200: {
@@ -77,30 +73,65 @@ export default async function createApp(options = {}, dataFilePath: PathLike) {
       404: {
         type: 'object',
         properties: {
-          error: { type: 'string' },
+          error: { type: 'null' },
+          //error: { type: 'string' },
         },
       },
     },
   } as const;
 
+  const patchPetSchema = {
+    params: {
+      type: "object",
+      properties: {
+        id: {type: 'number'}
+      },
+      required: ['id']
+    },
+    body: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        food: {type: 'number'},
+        weight: {type: 'number'},
+        age: {type: 'number'},
+      },
+      additionalProperties: false
+    }
+  } as const
+
+  const deletedPetSchema = {
+    params: {
+      type: 'object',
+      properties: {
+        id: { type: 'number' },
+      },
+      required: ['id'],
+    },
+    response: {
+      204: {
+        type: 'null',
+      },
+      404: {
+        type: 'object',
+        properties: {
+          error: { type: 'string' },
+        },
+      },
+    },
+  } as const;
+  
+
   app.post(
     '/pets',
     { schema: postPetSchema },
     async (request, reply) => {
+      //Read http request parameter
       const { name } = request.body
 
-      const pets = await petStore.read();
-      const nextId = getNextId(pets);
-      const newPet: Pet = {
-        id: nextId,
-        name,
-        food: 1,
-        weight: 1,
-        age: 1
-      }
-      pets.push(newPet);
-      await petStore.write(pets);
-
+      // business logic
+      const newPet = await petService.birth(name)
+      // http response
       reply.status(201);
       return newPet;
     }
@@ -108,8 +139,13 @@ export default async function createApp(options = {}, dataFilePath: PathLike) {
 
   app.get(
     '/pets',
-    async () => {
-      const pets = await petStore.read();
+    { schema: responsePetArraySchema},
+    async (request, reply) => {
+      const pets = await petService.getAllPets();
+      if(!pets){
+        return reply.status(404).send({ error: 'No pets found' });
+      }
+      reply.status(200);
       return pets;
     }
   )
@@ -119,12 +155,42 @@ export default async function createApp(options = {}, dataFilePath: PathLike) {
     { schema: responsePetSchema },
     async (request, reply) => {
       const { id } = request.params;
-      const pets = await petStore.read();
-      const foundPet = pets.find(p => p.id === id)
+      const foundPet = await petService.getPetById(id);
       if (!foundPet) {
+        return reply.status(404).send({});
+        // return reply.status(404).send({ error: 'Pet not found' });
+      }
+      reply.status(201);
+      return foundPet;
+    }
+  )
+
+  app.patch(
+    '/pets/:id',
+    { schema: patchPetSchema },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { name, food, weight, age } = request.body as Partial<PetProperties>;
+      const updatedPet = await petService.updatePetById(Number(id), { name, food, weight, age });
+      if (!updatedPet) {
         return reply.status(404).send({ error: 'Pet not found' });
       }
-      return foundPet;
+      reply.status(201);
+      return updatedPet;
+    }
+  )
+
+  app.delete(
+    '/pets/:id',
+    { schema: deletedPetSchema },
+    async (request, reply) => {
+      const { id } = request.params;
+      const wasDeleted = await petService.deletePetById(id)
+      if (!wasDeleted) {
+        return reply.status(404).send({ error: 'Pet not found' });
+    }
+
+    return reply.status(204).send();
     }
   )
 
