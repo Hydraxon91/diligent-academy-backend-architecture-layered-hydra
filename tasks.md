@@ -21,17 +21,24 @@ When a day passes, the pet behaves like this:
 Answer these questions:
 
 - What is the entrypoint of this application?
+server.ts
 - How can we start a dev server?
+npm run dev
 - Where can you find the API specification?
+open-api.yaml
 - What endpoints are currently implemented?
+GET /pets, POST /pets
 
 ## Task 2: Refactor our code
 
 Answer these questions:
 
 - What is the problem with the code from clean coding point of view?
+separation of concern, getnextid, jsonfilestore and type pet should be their own 'file'
 - What kind of concerns can you recognize in the `app.ts`?
+separation of concern, getnextid, jsonfilestore and type pet should be their own 'file'
 - What kind of tests are easy to write to this code?
+Does the correct object get returned, what happends if there is nothing to return, does object get saved correctly
 
 Refactor the code to the *Layered Architecture* layers: Presentational Layer, Business Logic Layer, Data Access Layer.
 
