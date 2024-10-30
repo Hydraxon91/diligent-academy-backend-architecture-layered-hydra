@@ -29,9 +29,7 @@ class JsonFileStore<T> {
     const content = JSON.stringify(data, null, 2);
     await writeFile(this.path, content, 'utf-8');
   } 
-
 }
-
 
 type Pet = {
   id: number,
@@ -57,6 +55,34 @@ export default async function createApp(options = {}, dataFilePath: PathLike) {
       additionalProperties: false
     }
   } as const
+
+  const responsePetSchema = {
+    params: {
+      type: "object",
+      properties: {
+        id: {type: 'number'}
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          id: { type: 'number' },
+          name: { type: 'string' },
+          food: { type: 'number' },
+          weight: { type: 'number' },
+          age: { type: 'number' },
+        },
+      },
+      404: {
+        type: 'object',
+        properties: {
+          error: { type: 'string' },
+        },
+      },
+    },
+  } as const;
+
   app.post(
     '/pets',
     { schema: postPetSchema },
@@ -87,6 +113,7 @@ export default async function createApp(options = {}, dataFilePath: PathLike) {
       return pets;
     }
   )
+
 
   return app;
 }
